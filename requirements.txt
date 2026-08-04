@@ -1,0 +1,6 @@
+streamlit>=1.35.0
+langchain-groq
+langchain-chroma
+langchain-huggingface
+sentence-transformers
+chromadb
