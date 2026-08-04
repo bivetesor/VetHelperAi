@@ -2,7 +2,8 @@ import os
 import datetime
 import pandas as pd
 import streamlit as st
-from st_gsheets_connection import GSheetsConnection
+import gspread
+
 from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -16,25 +17,20 @@ st.set_page_config(page_title="VetHelper AI", page_icon="🐾", layout="wide")
 st.title("🐾 VetHelper AI Asistanı")
 st.caption("Veteriner Hekimliği Bilgi Bankası ve Doküman Analiz Sistemi")
 
-# --- GOOGLE SHEETS BAGLANTISI VE KAYIT FONKSİYONU ---
-conn = st.connection("gsheets", type=GSheetsConnection)
-
+# --- GOOGLE SHEETS BİLGiSİ VE KAYIT (GSPREAD İLE) ---
 def log_to_gsheets(query: str, response: str, feedback: str = "Yok"):
     try:
-        # Mevcut veriyi oku
-        existing_data = conn.read(ttl=0)
+        # Streamlit Secrets'tan Sheet URL'sini al
+        sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
         
-        new_row = pd.DataFrame([{
-            "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "User_Query": query,
-            "AI_Response": response,
-            "Feedback": feedback
-        }])
+        # Public / Paylaşıma açık Sheet bağlantısı
+        gc = gspread.public_authorize()
+        sh = gc.open_by_url(sheet_url)
+        worksheet = sh.get_worksheet(0)
         
-        updated_df = pd.concat([existing_data, new_row], ignore_index=True)
-        conn.update(data=updated_df)
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        worksheet.append_row([timestamp, query, response, feedback])
     except Exception as e:
-        # Sheet erişim hatası olursa uygulamanın çökmesini engeller
         print(f"Google Sheets Kayıt Hatası: {e}")
 
 # --- SIDEBAR: GÜNCELLENMİŞ KURUMSAL BİLGİLER ---
@@ -139,7 +135,6 @@ for idx, msg in enumerate(st.session_state.messages):
             with col1:
                 if st.button("👍", key=f"like_{idx}"):
                     st.toast("Geri bildiriminiz kaydedildi (Beğenildi)!")
-                    # İlgili kullanıcı sorusunu bul ve Google Sheet'e güncelleme olarak gönder
                     user_q = st.session_state.messages[idx-1]["content"] if idx > 0 else ""
                     log_to_gsheets(user_q, msg["content"], feedback="Beğenildi (👍)")
             with col2:
@@ -162,5 +157,5 @@ if user_input := st.chat_input("Klinik vaka, semptom veya kaynak soru yazın..."
     st.session_state.messages.append({"role": "assistant", "content": answer})
     
     # Her yeni soru-cevap oluştuğunda Google Sheets'e kaydet
-    log_to_gsheets(user_query=user_input, response=answer, feedback="Henüz Seçilmedi")
+    log_to_gsheets(query=user_input, response=answer, feedback="Henüz Seçilmedi")
     st.rerun()
