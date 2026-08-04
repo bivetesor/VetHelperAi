@@ -13,6 +13,35 @@ st.set_page_config(page_title="VetHelper AI", page_icon="🐾", layout="wide")
 st.title("🐾 VetHelper AI Asistanı")
 st.caption("Veteriner Hekimliği Bilgi Bankası ve Doküman Analiz Sistemi")
 
+# --- SIDEBAR: KURUMSAL VE BİLİMSEL KADRO ---
+st.sidebar.title("📌 Kurumsal Bilgiler")
+
+with st.sidebar.expander("🏢 Sanveta Animal Healthcare", expanded=True):
+    st.markdown("""
+    2025 yılında **Elis Büşra Kılıç Esen** tarafından kurulan **Sanveta Animal Healthcare**, veteriner hekimlerin saha tecrübesi ve uzmanlığını odağına alan, hayvan sağlığı sektöründe faaliyet gösteren yenilikçi bir kuruluştur.
+    
+    Hayvan sağlığına yönelik geliştirdiğimiz bütüncül çözümlerin yanı sıra, veteriner hekimlerin klinik süreçlerini ve operasyonlarını dijitalleştiren akıllı mobil uygulamalar ve web platformları tasarlıyoruz. Teknolojiyi veteriner tıbbın gereksinimleriyle buluşturarak meslektaşlarımızın iş yükünü hafifletmeyi, klinik verimliliğini artırmayı ve sektördeki hizmet standartlarını daha ileriye taşımayı hedefliyoruz.
+    """)
+
+with st.sidebar.expander("👨‍⚕️ Bilim Danışmanı"):
+    st.markdown("""
+    **Uzman Vet. Hek. Mustafa Esen**  
+    *Unvan:* Bilim Danışmanı  
+    
+    *Hakkında:* İç hastalıkları uzmanlığını 2022 yılında tamamlamış olup, iç hastalıkları anabilim dalında doktora çalışmalarına devam etmektedir. Sanveta bünyesinde geliştirilen tüm yazılım ve dijital platform süreçlerinin medikal/bilimsel denetimini ve koordinasyonunu yürütmektedir.
+    """)
+
+with st.sidebar.expander("💻 Yazılım & AI Altyapısı"):
+    st.markdown("""
+    - **Platform:** VetHelper AI
+    - **Model:** Groq Llama 3.3 (70B)
+    - **Vektör Veritabanı:** ChromaDB
+    - **Embedding:** Multilingual MiniLM-L12-v2
+    - **Mimari:** RAG (Retrieval-Augmented Generation)
+    """)
+
+st.sidebar.markdown("---")
+
 # 1. API Key Yönetimi
 groq_api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
 
@@ -45,7 +74,7 @@ llm = ChatGroq(
     temperature=0.1
 )
 
-# 4. RAG Prompt Şablonu (Yanlış veya Bulunmayan Terminoloji Yönetimi)
+# 4. RAG Prompt Şablonu
 system_prompt = (
     "Sen uzman bir veteriner hekim asistanısın. Aşağıda sağlanan doküman bağlamını (context) "
     "kullanarak kullanıcının sorusuna doğrudan, tıbbi açıdan doğru ve Türkçe yanıt ver.\n\n"
