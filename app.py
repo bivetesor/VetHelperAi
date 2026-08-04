@@ -1,5 +1,9 @@
 import os
+import datetime
+import pandas as pd
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
+
 from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -13,7 +17,28 @@ st.set_page_config(page_title="VetHelper AI", page_icon="🐾", layout="wide")
 st.title("🐾 VetHelper AI Asistanı")
 st.caption("Veteriner Hekimliği Bilgi Bankası ve Doküman Analiz Sistemi")
 
-# --- SIDEBAR: KURUMSAL VE BİLİMSEL KADRO ---
+# --- GOOGLE SHEETS BAGLANTISI VE KAYIT FONKSİYONU ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def log_to_gsheets(query: str, response: str, feedback: str = "Yok"):
+    try:
+        # Mevcut veriyi oku
+        existing_data = conn.read(ttl=0)
+        
+        new_row = pd.DataFrame([{
+            "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "User_Query": query,
+            "AI_Response": response,
+            "Feedback": feedback
+        }])
+        
+        updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+        conn.update(data=updated_df)
+    except Exception as e:
+        # Sheet erişim hatası olursa uygulamanın çökmesini engeller
+        print(f"Google Sheets Kayıt Hatası: {e}")
+
+# --- SIDEBAR: GÜNCELLENMİŞ KURUMSAL BİLGİLER ---
 st.sidebar.title("📌 Kurumsal Bilgiler")
 
 with st.sidebar.expander("🏢 Sanveta Animal Healthcare", expanded=True):
@@ -31,9 +56,9 @@ with st.sidebar.expander("👨‍⚕️ Bilim Danışmanı"):
     *Hakkında:* İç hastalıkları uzmanlığını 2022 yılında tamamlamış olup, iç hastalıkları anabilim dalında doktora çalışmalarına devam etmektedir. Sanveta bünyesinde geliştirilen tüm yazılım ve dijital platform süreçlerinin medikal/bilimsel denetimini ve koordinasyonunu yürütmektedir.
     """)
 
-with st.sidebar.expander("💻 Yazılım & AI Altyapısı"):
+with st.sidebar.expander("💻 Yazılım & Teknoloji Altyapısı"):
     st.markdown("""
-    - **Platform:** VetHelper AI
+    - **Geliştirici:** Sanveta Yazılım & AI Ekibi
     - **Model:** Groq Llama 3.3 (70B)
     - **Vektör Veritabanı:** ChromaDB
     - **Embedding:** Multilingual MiniLM-L12-v2
@@ -100,14 +125,31 @@ prompt = ChatPromptTemplate.from_messages([
 question_answer_chain = create_stuff_documents_chain(llm, prompt)
 rag_chain = create_retrieval_chain(retriever, question_answer_chain)
 
-# 5. Chat Geçmişi Arayüzü
+# 5. Chat Geçmişi Arayüzü ve Geri Bildirim Sistemi
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-for msg in st.session_state.messages:
+# Eski mesajları çizdir
+for idx, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
+        
+        # Asistan yanıtlarına Beğen / Beğenme butonları ekle
+        if msg["role"] == "assistant":
+            col1, col2, _ = st.columns([1, 1, 10])
+            with col1:
+                if st.button("👍", key=f"like_{idx}"):
+                    st.toast("Geri bildiriminiz kaydedildi (Beğenildi)!")
+                    # İlgili kullanıcı sorusunu bul ve Google Sheet'e güncelleme olarak gönder
+                    user_q = st.session_state.messages[idx-1]["content"] if idx > 0 else ""
+                    log_to_gsheets(user_q, msg["content"], feedback="Beğenildi (👍)")
+            with col2:
+                if st.button("👎", key=f"dislike_{idx}"):
+                    st.toast("Geri bildiriminiz kaydedildi (Beğenilmedi)!")
+                    user_q = st.session_state.messages[idx-1]["content"] if idx > 0 else ""
+                    log_to_gsheets(user_q, msg["content"], feedback="Beğenilmedi (👎)")
 
+# Yeni girdi alma
 if user_input := st.chat_input("Klinik vaka, semptom veya kaynak soru yazın..."):
     st.chat_message("user").markdown(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -119,3 +161,7 @@ if user_input := st.chat_input("Klinik vaka, semptom veya kaynak soru yazın..."
             st.markdown(answer)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
+    
+    # Her yeni soru-cevap oluştuğunda Google Sheets'e kaydet
+    log_to_gsheets(user_query=user_input, response=answer, feedback="Henüz Seçilmedi")
+    st.rerun()
