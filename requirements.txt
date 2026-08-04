@@ -6,5 +6,6 @@ langchain-chroma
 langchain-huggingface
 sentence-transformers
 chromadb
-streamlit-gsheets
+st-gsheets-connection
+gspread
 pandas
