@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from langchain_groq import ChatGroq
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma  # <--- Güncellenen import
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
@@ -12,7 +12,7 @@ st.set_page_config(page_title="VetHelper AI", page_icon="🐾", layout="wide")
 st.title("🐾 VetHelper AI Asistanı")
 st.caption("Veteriner Hekimliği Bilgi Bankası ve Doküman Analiz Sistemi")
 
-# 1. API Key Yönetimi (Streamlit Secrets veya Kullanıcı Girdisi)
+# 1. API Key Yönetimi
 groq_api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
 
 if not groq_api_key:
@@ -21,13 +21,12 @@ if not groq_api_key:
         st.info("Lütfen devam etmek için kenar çubuğundan Groq API anahtarınızı girin.")
         st.stop()
 
-# 2. Embedding ve ChromaDB Yükleme (İndeksleme kodunla birebir aynı model)
+# 2. Embedding ve ChromaDB Yükleme
 @st.cache_resource
 def get_vectorstore():
     embedding_model = HuggingFaceEmbeddings(
         model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     )
-    # Repo içine yükleyeceğin chroma_db klasörünün yolu
     db = Chroma(
         persist_directory="./chroma_db", 
         embedding_function=embedding_model
