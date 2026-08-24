@@ -90,7 +90,7 @@ with st.spinner("Bilgi tabanı yükleniyor..."):
 # 3. Groq LLM Yapılandırması
 llm = ChatGroq(
     groq_api_key=groq_api_key.strip(),
-    model="llama-3.3-70b-versatile",
+    model="mixtral-8x7b-32768",
     temperature=0.1
 )
 
