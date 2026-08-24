@@ -1,12 +1,10 @@
 streamlit>=1.28.0
 langchain
+langchain-core
 langchain-classic
 langchain-groq>=0.1.0
 langchain-chroma>=0.1.0
 langchain-huggingface>=0.1.0
-sentence-transformers>=2.2.0
-chromadb
 gspread
 oauth2client
 pandas
-
