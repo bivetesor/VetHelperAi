@@ -87,36 +87,43 @@ with st.spinner("Bilgi tabanı yükleniyor..."):
     vectorstore = get_vectorstore()
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-# 3. Groq Modellerini Otomatik Tespit Etme ve LLM Bağlantısı
+# 3. SADECE CHAT MODELLERİNİ SEÇEN YAPI
 @st.cache_resource
 def get_active_groq_llm(api_key: str):
     clean_key = api_key.strip()
     client = Groq(api_key=clean_key)
     
-    # Hesaptaki açık modelleri al
+    # Tüm modelleri çek
     models_data = client.models.list()
     available_model_ids = [m.id for m in models_data.data]
     
-    # Öncelikli model sırası
-    preferred_models = [
+    # Sadece sohbet (Chat/LLM) modelleri (Guard, Whisper, Vision ve classification modelleri hariç)
+    valid_chat_priority = [
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "llama-3.1-70b-versatile",
         "llama3-70b-8192",
         "llama3-8b-8192",
+        "qwen-2.5-32b",
+        "deepseek-r1-distill-llama-70b",
         "gemma2-9b-it"
     ]
     
     chosen_model = None
-    for m in preferred_models:
-        if m in available_model_ids:
-            chosen_model = m
+    for target in valid_chat_priority:
+        if target in available_model_ids:
+            chosen_model = target
             break
             
-    # Eğer listede hiçbiri uyuşmazsa hesapta açık ilk modeli seç
-    if not chosen_model and len(available_model_ids) > 0:
-        chosen_model = available_model_ids[0]
-        
+    # Eğer öncelik listesindekiler bulunamazsa, içinde "guard", "whisper", "vision" geçmeyen ilk modeli seç
+    if not chosen_model:
+        for mid in available_model_ids:
+            if not any(excluded in mid.lower() for excluded in ["guard", "whisper", "vision", "embed"]):
+                chosen_model = mid
+                break
+                
+    if not chosen_model:
+        chosen_model = "llama-3.1-8b-instant"
+
     return ChatGroq(
         groq_api_key=clean_key,
         model=chosen_model,
@@ -125,9 +132,9 @@ def get_active_groq_llm(api_key: str):
 
 try:
     llm, active_model_name = get_active_groq_llm(groq_api_key)
-    st.sidebar.caption(f"Aktif Model: `{active_model_name}`")
+    st.sidebar.caption(f"Aktif Sohbet Modeli: `{active_model_name}`")
 except Exception as e:
-    st.error(f"Groq API bağlantı hatası: {e}")
+    st.error(f"Groq bağlantı hatası: {e}")
     st.stop()
 
 # 4. RAG Prompt Şablonu
