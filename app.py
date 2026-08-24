@@ -11,6 +11,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
+from groq import Groq
 
 st.set_page_config(page_title="VetHelper AI", page_icon="🐾", layout="wide")
 
@@ -54,7 +55,6 @@ with st.sidebar.expander("👨‍⚕️ Bilim Danışmanı"):
 with st.sidebar.expander("💻 Yazılım & Teknoloji Altyapısı"):
     st.markdown("""
     - **Geliştirici:** Sanveta Yazılım & AI Ekibi
-    - **Model:** Groq Llama 3.3 (70B)
     - **Vektör Veritabanı:** ChromaDB
     - **Embedding:** Multilingual MiniLM-L12-v2
     - **Mimari:** RAG (Retrieval-Augmented Generation)
@@ -87,12 +87,48 @@ with st.spinner("Bilgi tabanı yükleniyor..."):
     vectorstore = get_vectorstore()
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-# 3. Groq LLM Yapılandırması
-llm = ChatGroq(
-    groq_api_key=groq_api_key.strip(),
-    model="llama-3.1-8b-instant",
-    temperature=0.1
-)
+# 3. Groq Modellerini Otomatik Tespit Etme ve LLM Bağlantısı
+@st.cache_resource
+def get_active_groq_llm(api_key: str):
+    clean_key = api_key.strip()
+    client = Groq(api_key=clean_key)
+    
+    # Hesaptaki açık modelleri al
+    models_data = client.models.list()
+    available_model_ids = [m.id for m in models_data.data]
+    
+    # Öncelikli model sırası
+    preferred_models = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama-3.1-70b-versatile",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "gemma2-9b-it"
+    ]
+    
+    chosen_model = None
+    for m in preferred_models:
+        if m in available_model_ids:
+            chosen_model = m
+            break
+            
+    # Eğer listede hiçbiri uyuşmazsa hesapta açık ilk modeli seç
+    if not chosen_model and len(available_model_ids) > 0:
+        chosen_model = available_model_ids[0]
+        
+    return ChatGroq(
+        groq_api_key=clean_key,
+        model=chosen_model,
+        temperature=0.1
+    ), chosen_model
+
+try:
+    llm, active_model_name = get_active_groq_llm(groq_api_key)
+    st.sidebar.caption(f"Aktif Model: `{active_model_name}`")
+except Exception as e:
+    st.error(f"Groq API bağlantı hatası: {e}")
+    st.stop()
 
 # 4. RAG Prompt Şablonu
 system_prompt = (
@@ -149,7 +185,7 @@ if user_input := st.chat_input("Klinik vaka, semptom veya kaynak soru yazın..."
                 # Hafızaya ekle
                 st.session_state.messages.append({"role": "assistant", "content": answer})
                 
-                # Arka planda logla (hata verse bile akışı bozmaz)
+                # Arka planda logla
                 log_to_gsheets(query=user_input, response=answer, feedback="Henüz Seçilmedi")
                 
             except Exception as e:
