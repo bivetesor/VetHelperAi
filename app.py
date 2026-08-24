@@ -5,7 +5,7 @@ import gspread
 import traceback
 import gc
 
-# Sayfa yapılandırması
+# Sayfa yapılandırması - Daha hafif
 st.set_page_config(
     page_title="VetHelper AI", 
     page_icon="🐾", 
@@ -24,7 +24,7 @@ from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
-# --- GOOGLE SHEETS (gc çakışması düzeltildi) ---
+# --- GOOGLE SHEETS ---
 def log_to_gsheets(query: str, response: str, feedback: str = "Yok"):
     """Google Sheets'e log kaydeder - hataları yok sayar"""
     try:
@@ -58,10 +58,10 @@ with st.sidebar:
     st.caption("Model: Llama 3.1-8B")
     st.caption("Vektör DB: Chroma")
 
-# --- CACHE'LER (ttl kaldırıldı, tek seferlik yüklenir) ---
+# --- CACHE'LER ---
 @st.cache_resource
 def load_embedding_model():
-    """Orijinal yerel HuggingFace embedding modeli"""
+    """Embedding modeli"""
     try:
         return HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
@@ -73,15 +73,16 @@ def load_embedding_model():
         return None
 
 @st.cache_resource
-def load_vectorstore(_embedding):
+def load_vectorstore():
     """Vektör veritabanı"""
     try:
-        if _embedding is None:
+        embedding = load_embedding_model()
+        if embedding is None:
             return None
         
         db = Chroma(
             persist_directory="./chroma_db",
-            embedding_function=_embedding,
+            embedding_function=embedding,
             collection_metadata={"hnsw:space": "cosine"}
         )
         return db
@@ -91,7 +92,7 @@ def load_vectorstore(_embedding):
 
 @st.cache_resource
 def load_llm(api_key):
-    """LLM bağlantısı"""
+    """LLM"""
     try:
         return ChatGroq(
             groq_api_key=api_key.strip(),
@@ -109,12 +110,7 @@ def load_llm(api_key):
 with st.spinner("🔄 Sistem başlatılıyor..."):
     gc.collect()
     
-    embedding = load_embedding_model()
-    if embedding is None:
-        st.error("Embedding modeli başlatılamadı.")
-        st.stop()
-        
-    vectorstore = load_vectorstore(embedding)
+    vectorstore = load_vectorstore()
     if vectorstore is None:
         st.error("Sistem başlatılamadı. Lütfen daha sonra tekrar deneyin.")
         st.stop()
@@ -171,6 +167,7 @@ if user_input := st.chat_input("Sorunuzu yazın..."):
     st.chat_message("user").markdown(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
     
+    # Mesaj sayısını sınırla (en son 20 mesaj)
     if len(st.session_state.messages) > 20:
         st.session_state.messages = st.session_state.messages[-20:]
     
@@ -195,7 +192,7 @@ if user_input := st.chat_input("Sorunuzu yazın..."):
     
     st.rerun()
 
-# --- BELLEK YÖNETİMİ ---
+# --- ALTTAN BELLEK YÖNETİMİ ---
 if len(st.session_state.messages) % 5 == 0:
     gc.collect()
 
