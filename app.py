@@ -89,7 +89,7 @@ with st.spinner("Bilgi tabanı yükleniyor..."):
     vectorstore = get_vectorstore()
     retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 
-# 3. Groq LLM Yapılandırması (Güncel Model Adı)
+# 3. Groq LLM Yapılandırması
 llm = ChatGroq(
     groq_api_key=groq_api_key.strip(),
     model="llama-3.3-70b-versatile",
