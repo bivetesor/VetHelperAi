@@ -3,6 +3,7 @@ import datetime
 import pandas as pd
 import streamlit as st
 import gspread
+import traceback
 
 from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
@@ -84,15 +85,25 @@ def get_vectorstore():
     return db
 
 with st.spinner("Bilgi tabanı yükleniyor..."):
-    vectorstore = get_vectorstore()
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+    try:
+        vectorstore = get_vectorstore()
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+    except Exception as e:
+        st.error(f"❌ Vektör veritabanı yüklenirken hata oluştu: {str(e)}")
+        st.stop()
 
-# 3. Groq LLM Yapılandırması
-llm = ChatGroq(
-    groq_api_key=groq_api_key.strip(),  # Olası gizli boşlukları temizler
-    model="llama-3.1-8b-instant",       # Test için en stabil ve hızlı model
-    temperature=0.1
-)
+# 3. Groq LLM Yapılandırması - Hata yakalama eklendi
+try:
+    llm = ChatGroq(
+        groq_api_key=groq_api_key.strip(),
+        model="llama-3.1-8b-instant",
+        temperature=0.1,
+        timeout=60  # Zaman aşımı eklendi
+    )
+except Exception as e:
+    st.error(f"❌ Groq modeli yüklenirken hata oluştu: {str(e)}")
+    st.info("Lütfen API anahtarınızın geçerli olduğunu kontrol edin.")
+    st.stop()
 
 # 4. RAG Prompt Şablonu
 system_prompt = (
@@ -149,13 +160,34 @@ if user_input := st.chat_input("Klinik vaka, semptom veya kaynak soru yazın..."
     st.session_state.messages.append({"role": "user", "content": user_input})
 
     with st.chat_message("assistant"):
-        with st.spinner("Kaynaklar taranıyor..."):
-            response = rag_chain.invoke({"input": user_input})
-            answer = response["answer"]
-            st.markdown(answer)
-
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+        with st.spinner("Kaynaklar taranıyor ve yanıt hazırlanıyor..."):
+            try:
+                # RAG zincirini çağır
+                response = rag_chain.invoke({"input": user_input})
+                answer = response["answer"]
+                st.markdown(answer)
+                
+                # Başarılı yanıtı kaydet
+                st.session_state.messages.append({"role": "assistant", "content": answer})
+                log_to_gsheets(query=user_input, response=answer, feedback="Henüz Seçilmedi")
+                
+            except Exception as e:
+                # Hata mesajını göster
+                error_msg = f"❌ Bir hata oluştu: {str(e)}\n\nLütfen daha sonra tekrar deneyin veya farklı bir soru sorun."
+                st.error(error_msg)
+                
+                # Hata detaylarını log'la
+                st.code(traceback.format_exc(), language="python")
+                
+                # Hata durumunda kullanıcıya geri bildirim ver
+                fallback_answer = "Üzgünüm, şu anda yanıt oluştururken bir teknik sorun yaşandı. Lütfen daha sonra tekrar deneyin veya sorunuzu farklı şekilde ifade edin."
+                st.markdown(fallback_answer)
+                st.session_state.messages.append({"role": "assistant", "content": fallback_answer})
+                
+                # Hatayı Google Sheets'e kaydet
+                try:
+                    log_to_gsheets(query=user_input, response=f"HATA: {str(e)}", feedback="Sistem Hatası")
+                except:
+                    pass
     
-    # Her yeni soru-cevap oluştuğunda Google Sheets'e kaydet
-    log_to_gsheets(query=user_input, response=answer, feedback="Henüz Seçilmedi")
     st.rerun()
