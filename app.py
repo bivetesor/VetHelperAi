@@ -1,30 +1,32 @@
 import os
 import datetime
-import gc
 import streamlit as st
 import gspread
+import traceback
+import gc
 
-# --- SAYFA YAPILANDIRMASI ---
+# Sayfa yapılandırması
 st.set_page_config(
     page_title="VetHelper AI", 
     page_icon="🐾", 
     layout="centered"
 )
 
+# Başlık
 st.title("🐾 VetHelper AI")
 st.caption("Veteriner Hekimlik Asistanı")
 
-# --- LANGCHAIN VE MODEL IMPORTLARI ---
+# Importlar
 from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
-# --- GOOGLE SHEETS LOGLAMA ---
+# --- GOOGLE SHEETS (gc çakışması düzeltildi) ---
 def log_to_gsheets(query: str, response: str, feedback: str = "Yok"):
-    """Google Sheets'e log kaydeder - gc çakışması önlenmiştir"""
+    """Google Sheets'e log kaydeder - hataları yok sayar"""
     try:
         if "connections" not in st.secrets or "gsheets" not in st.secrets["connections"]:
             return
@@ -37,78 +39,92 @@ def log_to_gsheets(query: str, response: str, feedback: str = "Yok"):
     except Exception:
         pass
 
-# --- SIDEBAR (KONTROLLER) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### 📌 Kurumsal")
     st.markdown("**Sanveta Animal Healthcare**")
     st.markdown("Veteriner Hekimlik AI Asistanı")
     st.markdown("---")
     
-    # Groq API Key kontrolü
+    # API Key
     groq_api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
     if not groq_api_key:
         groq_api_key = st.text_input("Groq API Key:", type="password")
         if not groq_api_key:
-            st.info("Lütfen Groq API anahtarınızı girin.")
+            st.info("API anahtarınızı girin")
             st.stop()
-            
-    # Hugging Face Token kontrolü
-    hf_token = st.secrets.get("HF_TOKEN") or os.environ.get("HF_TOKEN")
-    if not hf_token:
-        hf_token = st.text_input("Hugging Face API Token:", type="password")
-        if not hf_token:
-            st.info("Lütfen Hugging Face Token girin (veya Streamlit Secrets'a HF_TOKEN ekleyin).")
-            st.stop()
-            
+    
     st.markdown("---")
     st.caption("Model: Llama 3.1-8B")
-    st.caption("Vektör DB: Chroma (API Tabanlı)")
+    st.caption("Vektör DB: Chroma")
 
-# --- CACHE'LENMİŞ MODEL VE DB YÜKLEME ---
+# --- CACHE'LER (ttl kaldırıldı, tek seferlik yüklenir) ---
 @st.cache_resource
-def load_embedding_model(token: str):
-    """PyTorch çalıştırmaz, API üzerinden embedding alır (RAM tasarrufu sağlar)"""
-    return HuggingFaceEndpointEmbeddings(
-        huggingfacehub_api_token=token.strip(),
-        model="sentence-transformers/all-MiniLM-L6-v2"
-    )
+def load_embedding_model():
+    """Orijinal yerel HuggingFace embedding modeli"""
+    try:
+        return HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
+        )
+    except Exception as e:
+        st.error(f"Embedding model yüklenemedi: {e}")
+        return None
 
 @st.cache_resource
 def load_vectorstore(_embedding):
-    """Chroma vektör veritabanını yükler"""
+    """Vektör veritabanı"""
     try:
-        return Chroma(
+        if _embedding is None:
+            return None
+        
+        db = Chroma(
             persist_directory="./chroma_db",
             embedding_function=_embedding,
             collection_metadata={"hnsw:space": "cosine"}
         )
+        return db
     except Exception as e:
-        st.error(f"Vectorstore yüklenirken hata oluştu: {e}")
+        st.error(f"Vectorstore yüklenemedi: {e}")
         return None
 
 @st.cache_resource
-def load_llm(api_key: str):
-    """Groq LLM bağlantısı"""
-    return ChatGroq(
-        groq_api_key=api_key.strip(),
-        model="llama-3.1-8b-instant",
-        temperature=0.1,
-        max_tokens=256,
-        timeout=20,
-        max_retries=1
-    )
+def load_llm(api_key):
+    """LLM bağlantısı"""
+    try:
+        return ChatGroq(
+            groq_api_key=api_key.strip(),
+            model="llama-3.1-8b-instant",
+            temperature=0.1,
+            max_tokens=256,
+            timeout=20,
+            max_retries=1
+        )
+    except Exception as e:
+        st.error(f"LLM yüklenemedi: {e}")
+        return None
 
-# --- SİSTEMİ BAŞLAT ---
+# --- SİSTEMİ YÜKLE ---
 with st.spinner("🔄 Sistem başlatılıyor..."):
-    embedding = load_embedding_model(hf_token)
-    vectorstore = load_vectorstore(embedding)
+    gc.collect()
     
-    if vectorstore is None:
-        st.error("Sistem başlatılamadı. Lütfen vektör dizinini kontrol edin.")
+    embedding = load_embedding_model()
+    if embedding is None:
+        st.error("Embedding modeli başlatılamadı.")
         st.stop()
         
+    vectorstore = load_vectorstore(embedding)
+    if vectorstore is None:
+        st.error("Sistem başlatılamadı. Lütfen daha sonra tekrar deneyin.")
+        st.stop()
+    
     retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
+    
     llm = load_llm(groq_api_key)
+    if llm is None:
+        st.error("AI modeli başlatılamadı.")
+        st.stop()
 
 # --- RAG ZİNCİRİ ---
 system_prompt = (
@@ -125,18 +141,18 @@ prompt = ChatPromptTemplate.from_messages([
 question_answer_chain = create_stuff_documents_chain(llm, prompt)
 rag_chain = create_retrieval_chain(retriever, question_answer_chain)
 
-# --- CHAT ARAYÜZÜ ---
+# --- CHAT ARABİRİMİ ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Son 10 mesajı ekrana bas
+# Sadece son 10 mesajı göster
 start_idx = max(0, len(st.session_state.messages) - 10)
 for i in range(start_idx, len(st.session_state.messages)):
     msg = st.session_state.messages[i]
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         
-        # Son 5 asist mesajına feedback butonu
+        # Sadece son 5 mesaja feedback butonu
         if msg["role"] == "assistant" and i >= len(st.session_state.messages) - 5:
             col1, col2 = st.columns(2)
             with col1:
@@ -150,15 +166,14 @@ for i in range(start_idx, len(st.session_state.messages)):
                     log_to_gsheets(user_q, msg["content"], "Beğenilmedi")
                     st.toast("Geri bildiriminiz kaydedildi")
 
-# --- YENİ MESAJ ALMA VE CEVAPLAMA ---
+# --- YENİ MESAJ ---
 if user_input := st.chat_input("Sorunuzu yazın..."):
     st.chat_message("user").markdown(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
     
-    # Mesaj geçmişini 20 ile sınırla
     if len(st.session_state.messages) > 20:
         st.session_state.messages = st.session_state.messages[-20:]
-        
+    
     with st.chat_message("assistant"):
         with st.spinner("Düşünüyorum..."):
             try:
@@ -168,16 +183,32 @@ if user_input := st.chat_input("Sorunuzu yazın..."):
                 
                 st.session_state.messages.append({"role": "assistant", "content": answer})
                 log_to_gsheets(user_input, answer, "Henüz Seçilmedi")
+                
             except Exception as e:
-                st.error(f"Hata: {str(e)[:100]}")
-                fallback = "Teknik bir sorun oluştu. Lütfen tekrar deneyin."
+                error_msg = f"❌ Hata: {str(e)[:100]}"
+                st.error(error_msg)
+                fallback = "Teknik sorun. Lütfen tekrar deneyin."
                 st.markdown(fallback)
                 st.session_state.messages.append({"role": "assistant", "content": fallback})
-            finally:
-                gc.collect()
-                
+            
+            gc.collect()
+    
     st.rerun()
 
-# --- ARKA PLAN TEMİZLİĞİ ---
+# --- BELLEK YÖNETİMİ ---
 if len(st.session_state.messages) % 5 == 0:
     gc.collect()
+
+# Debug - Bellek kullanımı
+if st.sidebar.checkbox("🔧 Sistem Durumu"):
+    try:
+        import psutil
+        process = psutil.Process()
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        st.sidebar.metric("💾 Bellek", f"{memory_mb:.1f} MB")
+        
+        if st.sidebar.button("🧹 Bellek Temizle"):
+            gc.collect()
+            st.sidebar.success("Temizlendi!")
+    except:
+        pass
