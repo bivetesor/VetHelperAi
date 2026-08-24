@@ -24,25 +24,23 @@ def log_to_gsheets(query: str, response: str, feedback: str = "Yok"):
             return
             
         sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        
-        # 'gc' yerine 'gs_client' kullanıldı
         gs_client = gspread.public_authorize()
         sh = gs_client.open_by_url(sheet_url)
         worksheet = sh.get_worksheet(0)
         
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        worksheet.append_row([timestamp, query, response, feedback])
+        worksheet.append_row([timestamp, query[:200], response[:200], feedback])
     except Exception as e:
-        print(f"Google Sheets Kayıt Hatası: {e}")
+        print(f"Google Sheets Log Hatası: {e}")
 
-# --- SIDEBAR: GÜNCELLENMİŞ KURUMSAL BİLGİLER ---
+# --- SIDEBAR ---
 st.sidebar.title("📌 Kurumsal Bilgiler")
 
 with st.sidebar.expander("🏢 Sanveta Animal Healthcare", expanded=True):
     st.markdown("""
     2025 yılında **Elis Büşra Kılıç Esen** tarafından kurulan **Sanveta Animal Healthcare**, veteriner hekimlerin saha tecrübesi ve uzmanlığını odağına alan, hayvan sağlığı sektöründe faaliyet gösteren yenilikçi bir kuruluştur.
     
-    Hayvan sağlığına yönelik geliştirdiğimiz bütüncül çözümlerin yanı sıra, veteriner hekimlerin klinik süreçlerini ve operasyonlarını dijitalleştiren akıllı mobil uygulamalar ve web platformları tasarlıyoruz. Teknolojiyi veteriner tıbbın gereksinimleriyle buluşturarak meslektaşlarımızın iş yükünü hafifletmeyi, klinik verimliliğini artırmayı ve sektördeki hizmet standartlarını daha ileriye taşımayı hedefliyoruz.
+    Hayvan sağlığına yönelik geliştirdiğimiz bütüncül çözümlerin yanı sıra, veteriner hekimlerin klinik süreçlerini ve operasyonlarını dijitalleştiren akıllı mobil uygulamalar ve web platformları tasarlıyoruz.
     """)
 
 with st.sidebar.expander("👨‍⚕️ Bilim Danışmanı"):
@@ -50,7 +48,7 @@ with st.sidebar.expander("👨‍⚕️ Bilim Danışmanı"):
     **Uzman Vet. Hek. Mustafa Esen**  
     *Unvan:* Bilim Danışmanı  
     
-    *Hakkında:* İç hastalıkları uzmanlığını 2022 yılında tamamlamış olup, iç hastalıkları anabilim dalında doktora çalışmalarına devam etmektedir. Sanveta bünyesinde geliştirilen tüm yazılım ve dijital platform süreçlerinin medikal/bilimsel denetimini ve koordinasyonunu yürütmektedir.
+    *Hakkında:* İç hastalıkları uzmanlığını 2022 yılında tamamlamış olup, iç hastalıkları anabilim dalında doktora çalışmalarına devam etmektedir.
     """)
 
 with st.sidebar.expander("💻 Yazılım & Teknoloji Altyapısı"):
@@ -87,7 +85,7 @@ def get_vectorstore():
 
 with st.spinner("Bilgi tabanı yükleniyor..."):
     vectorstore = get_vectorstore()
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
 # 3. Groq LLM Yapılandırması
 llm = ChatGroq(
@@ -99,18 +97,8 @@ llm = ChatGroq(
 # 4. RAG Prompt Şablonu
 system_prompt = (
     "Sen uzman bir veteriner hekim asistanısın. Aşağıda sağlanan doküman bağlamını (context) "
-    "kullanarak kullanıcının sorusuna doğrudan, tıbbi açıdan doğru ve Türkçe yanıt ver.\n\n"
-    "ÖNEMLİ KURALLAR:\n"
-    "1. Kullanıcının sorduğu tıbbi terminoloji veya vaka bilgisi verilen doküman bağlamında "
-    "doğrudan bulunamıyorsa ya da terimde bir yazım/terminoloji hatası varsa bildiklerini uydurma.\n"
-    "2. Böyle bir durumda kullanıcıya şu formatta yanıt ver:\n"
-    "   'Aradığınız terminoloji veya vaka bilgisi kaynaklarımızda doğrudan bulunamadı. Bunlardan birini mi demek istediniz?'\n"
-    "3. Ardından veteriner hekimliği literatürüne uygun olarak kullanıcının neyi kastetmiş olabileceğine dair 5 olası seçeneği maddeler halinde sırala:\n"
-    "   1. [Olası Terim / Konu 1] - (Kısa klinik açıklaması)\n"
-    "   2. [Olası Terim / Konu 2] - (Kısa klinik açıklaması)\n"
-    "   3. [Olası Terim / Konu 3] - (Kısa klinik açıklaması)\n"
-    "   4. [Olası Terim / Konu 4] - (Kısa klinik açıklaması)\n"
-    "   5. [Olası Terim / Konu 5] - (Kısa klinik açıklaması)\n\n"
+    "kullanarak kullanıcının sorusuna doğrudan, tıbbi açıdan doğru ve Türkçe yanıt ver.\n"
+    "Eğer kullanıcı sadece selam veriyorsa veya genel bir soru soruyorsa nazikçe yanıt ver.\n\n"
     "Doküman Bağlamı:\n{context}"
 )
 
@@ -122,45 +110,49 @@ prompt = ChatPromptTemplate.from_messages([
 question_answer_chain = create_stuff_documents_chain(llm, prompt)
 rag_chain = create_retrieval_chain(retriever, question_answer_chain)
 
-# 5. Chat Geçmişi Arayüzü ve Geri Bildirim Sistemi
+# 5. Mesaj Geçmişi Başlatma
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Eski mesajları çizdir
+# Mesaj geçmişini ekrana yazdır
 for idx, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         
-        # Asistan yanıtlarına Beğen / Beğenme butonları ekle
         if msg["role"] == "assistant":
             col1, col2, _ = st.columns([1, 1, 10])
             with col1:
                 if st.button("👍", key=f"like_{idx}"):
-                    st.toast("Geri bildiriminiz kaydedildi (Beğenildi)!")
                     user_q = st.session_state.messages[idx-1]["content"] if idx > 0 else ""
                     log_to_gsheets(user_q, msg["content"], feedback="Beğenildi (👍)")
+                    st.toast("Beğenildi!")
             with col2:
                 if st.button("👎", key=f"dislike_{idx}"):
-                    st.toast("Geri bildiriminiz kaydedildi (Beğenilmedi)!")
                     user_q = st.session_state.messages[idx-1]["content"] if idx > 0 else ""
                     log_to_gsheets(user_q, msg["content"], feedback="Beğenilmedi (👎)")
+                    st.toast("Beğenilmedi!")
 
-# Yeni girdi alma
+# Yeni Mesaj Girişi
 if user_input := st.chat_input("Klinik vaka, semptom veya kaynak soru yazın..."):
+    # 1. Kullanıcı mesajını ekrana bas ve hafızaya al
     st.chat_message("user").markdown(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
 
+    # 2. Asistan yanıtını üret ve ekrana bas
     with st.chat_message("assistant"):
-        with st.spinner("Kaynaklar taranıyor..."):
+        with st.spinner("Düşünüyorum..."):
             try:
                 response = rag_chain.invoke({"input": user_input})
-                answer = response["answer"]
+                answer = response.get("answer", "Yanıt oluşturulamadı.")
                 st.markdown(answer)
+                
+                # Hafızaya ekle
                 st.session_state.messages.append({"role": "assistant", "content": answer})
                 
-                # Google Sheets'e kaydet
+                # Arka planda logla (hata verse bile akışı bozmaz)
                 log_to_gsheets(query=user_input, response=answer, feedback="Henüz Seçilmedi")
-            except Exception as e:
-                st.error(f"Yanıt üretilirken bir hata oluştu: {e}")
                 
-    st.rerun()
+            except Exception as e:
+                error_details = str(e)
+                st.error(f"Hata Detayı: {error_details}")
+                st.session_state.messages.append({"role": "assistant", "content": f"Hata: {error_details}"})
